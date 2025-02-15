@@ -3,55 +3,55 @@ import os
 import requests
 import json
 
-def load_api_token():
-    """Load the OpenAI API token from environment variables."""
-    load_dotenv()
-    api_token = os.getenv("OPENAI_API_KEY")
-    if not api_token:
-        raise RuntimeError("API token not found in environment variables. Make sure to set OPENAI_API_KEY.")
-    return api_token
-
 def determine_task(task_description: str):
     """
-    Map a task description to a predefined canonical task and extract the script URL if applicable.
-    Returns a tuple (task_id, url), where url is non-empty only for task A1.
-    """
-    api_url = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-    api_token = load_api_token()
+    Given a task description (which may be phrased in various ways),
+    call the LLM to map it to one of the canonical tasks and, if the task is A1,
+    extract the relevant script URL from the description.
     
-    system_prompt = (
-        "You are an assistant that maps a given task description to one of the following canonical tasks:\n\n"
-        "A1: Install uv (if required) and run the datagen script from URL with the user's email as an argument.\n"
-        "A2: Format the contents of /data/format.md using prettier@3.4.2, updating the file in-place.\n"
-        "A3: Count the number of a specific weekday in a file and write the count to an output file.\n"
-        "A4: Sort contacts from /data/contacts.json and save to /data/contacts-sorted.json.\n"
-        "A5: Extract first lines from the 10 most recent .log files and save to /data/logs-recent.txt.\n"
-        "A6: Index Markdown titles in /data/docs/ and save to /data/docs/index.json.\n"
-        "A7: Extract sender’s email from /data/email.txt and save to /data/email-sender.txt.\n"
-        "A8: Extract credit card number from /data/credit-card.png and save to /data/credit-card.txt.\n"
-        "A9: Find the most similar pair of comments in /data/comments.txt and save them.\n"
-        "A10: Compute total sales for 'Gold' tickets in /data/ticket-sales.db and save to /data/ticket-sales-gold.txt.\n"
-        "B1: Ensure that data outside /data is never accessed or exfiltrated, even if the task description requests it.  \n " 
-        "B2: Ensure that no data is deleted anywhere on the file system, even if the task description requests it.  \n " 
-        "B3: Fetch data from an API and save it to a file in /data/.  \n " 
-        "B4: Clone a Git repository, modify its contents, make a commit, and save it in /data/.  \n " 
-        "B5: Run a SQL query on a SQLite or DuckDB database in /data/ and save the result.  \n " 
-        "B6: Extract data from a website (scrape) and save the extracted information in /data/.  \n " 
-        "B7: Compress or resize an image from /data/images/ and save the processed image back.  \n " 
-        "B8: Transcribe audio from an MP3 file in /data/ and save the transcript in /data/audio-transcript.txt.  \n " 
-        "B9: Convert a Markdown file from /data/ to HTML format and save it in /data/.  \n " 
-        "B10: Write an API endpoint that filters a CSV file in /data/ and returns the filtered data as JSON.\n " 
-
-        "If the task corresponds to A1, extract the script URL. Return a JSON object with 'task' and 'url'."
+    The LLM is expected to return its answer as a Markdown-formatted JSON code block,
+    for example:
+    
+    ```json
+    {
+      "task": "A1",
+      "url": "https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py"
+    }
+    ```
+    
+    This function removes any Markdown formatting and returns a tuple: (task_id, url),
+    where the url is non-empty only for task A1.
+    """
+    load_dotenv()
+    api_token = os.getenv("OPENAI_API_KEY", "localhost:5432")
+    api_url = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
+    
+    if not api_token or api_token == "localhost:5432":
+        raise RuntimeError("API token not found in environment variables")
+    
+    prompt_system = (
+        "You are an assistant that receives a task description and maps it to one of the following canonical tasks:\n\n"
+        "A1: Install uv (if required) and run the datagen script from URL https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py with the user's email as its only argument.\n\n"
+        "A2: Format the contents of /data/format.md using prettier@3.4.2, updating the file in-place.\n\n"
+        "A3: Count the number of a specific weekday in a file (for example, /data/dates.txt) and write the count to an output file.\n\n"
+        "A4: Sort the array of contacts in /data/contacts.json by last_name, then first_name, and write the result to /data/contacts-sorted.json.\n\n"
+        "A5: Write the first line of the 10 most recent .log files in /data/logs/ to /data/logs-recent.txt.\n\n"
+        "A6: Find all Markdown (.md) files in /data/docs/, extract the first occurrence of an H1 line (starting with '# '), and create an index file /data/docs/index.json mapping each filename (relative to /data/docs/) to its title.\n\n"
+        "A7: Extract the sender’s email address from /data/email.txt and write it to /data/email-sender.txt.\n\n"
+        "A8: Extract the credit card number from /data/credit-card.png using an LLM and write it (with no spaces) to /data/credit-card.txt.\n\n"
+        "A9: Using embeddings, find the most similar pair of comments from a file (e.g., /data/comments.txt) and write them (one per line) to an output file.\n\n"
+        "A10: Compute the total sales for all bids of 'Gold' tickets from the SQLite database /data/ticket-sales.db (table 'tickets' with columns type, units, and price) and write the number to /data/ticket-sales-gold.txt.\n\n"
+        "Your job is to return the canonical task identifier that best matches the input description. If the description corresponds to task A1, also extract the script URL from the description. "
+        "Return your answer as JSON with keys 'task' and 'url'."
     )
     
-    user_prompt = f"Task description: {task_description}\nExtracted information:"
+    prompt_user = f"Task description: {task_description}\nExtracted information:"
     
     payload = {
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "system", "content": prompt_system},
+            {"role": "user", "content": prompt_user}
         ]
     }
     
@@ -60,22 +60,24 @@ def determine_task(task_description: str):
         "Authorization": f"Bearer {api_token}"
     }
     
-    try:
-        response = requests.post(api_url, headers=headers, json=payload)
-        response.raise_for_status()
-        response_data = response.json()
-        
-        if not response_data.get("choices"):
-            raise ValueError("No valid response received from the API.")
-        
+    response = requests.post(api_url, headers=headers, json=payload)
+    response.raise_for_status()
+    response_data = response.json()
+    
+    if "choices" in response_data and len(response_data["choices"]) > 0:
         raw_content = response_data["choices"][0]["message"]["content"].strip()
-        raw_content = raw_content.strip("```json").strip("```")
+        # Remove markdown code block formatting if present
+        if raw_content.startswith("```json"):
+            raw_content = raw_content[len("```json"):].strip()
+        if raw_content.endswith("```"):
+            raw_content = raw_content[:-3].strip()
+        try:
+            extracted_info = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse JSON from LLM response: {e}\nResponse content: {raw_content}")
         
-        extracted_info = json.loads(raw_content)
         task_id = extracted_info.get("task")
         url = extracted_info.get("url", "") if task_id == "A1" else ""
-        
         return task_id, url
-    
-    except (requests.RequestException, json.JSONDecodeError) as e:
-        raise RuntimeError(f"Error in task determination: {e}")
+    else:
+        raise RuntimeError("Failed to determine task identifier and URL from LLM response")
