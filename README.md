@@ -45,7 +45,3 @@ curl -X POST "http://localhost:8000/run?task=Count the number of Wednesdays in /
 # Read the result
 curl "http://localhost:8000/read?path=/data/result.txt"
 ```
-
-## License
-
-MIT License
